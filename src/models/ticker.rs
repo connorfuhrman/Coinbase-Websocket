@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Represents the complete WebSocket message from Coinbase
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct WebSocketMessage {
     /// The channel name (e.g., "ticker")
     pub channel: String,
@@ -17,7 +17,7 @@ pub struct WebSocketMessage {
 }
 
 /// Represents an event within the WebSocket message
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Event {
     /// Array of ticker updates
     pub tickers: Vec<Ticker>,
@@ -27,7 +27,7 @@ pub struct Event {
 }
 
 /// Contains the actual ticker data for a cryptocurrency
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Ticker {
     /// Best asking price in USD
     pub best_ask: String,
