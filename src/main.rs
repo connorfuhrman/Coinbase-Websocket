@@ -8,8 +8,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize the logger
     env_logger::init();
 
+    // Create websocket client 
     let ws_cli = CoinbaseWebSocketClient::new();
-    
+
+    // Register handler for BTC
     ws_cli.register_handler(
         "BTC-USD".to_string(),
         |msg: Ticker| {	    
@@ -21,5 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     ).await;
 
+    // Connect and listen to the websocket where the callback
+    // handler will be run for each message 
     return ws_cli.connect_and_listen().await;
 }

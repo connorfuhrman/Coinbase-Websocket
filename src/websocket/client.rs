@@ -66,7 +66,8 @@ impl CoinbaseWebSocketClient {
         
         // Ensure we have at least one handler registered
         if product_ids.is_empty() {
-            return Err("No handlers registered. Please register at least one handler before connecting.".into());
+            return Err("No handlers registered. \
+			Please register at least one handler before connecting.".into());
         }
         
         debug!("Found handlers for products: {:?}", product_ids);
@@ -111,7 +112,7 @@ impl CoinbaseWebSocketClient {
                 },
                 Err(e) => {
                     error!("Error receiving message: {}", e);
-                    break;
+                    return Err(e.into())
                 }
             }
         }
