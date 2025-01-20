@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Represents the complete WebSocket message from Coinbase
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -16,14 +17,20 @@ pub struct WebSocketMessage {
     pub timestamp: String
 }
 
-/// Represents an event within the WebSocket message
+/// Represents different types of events within the WebSocket message
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Event {
-    /// Array of ticker updates
-    pub tickers: Vec<Ticker>,
-    /// Event type (e.g., "update")
-    #[serde(rename = "type")]
-    pub event_type: String,
+#[serde(untagged)]
+pub enum Event {
+    // Variant for ticker updates (snapshot or update)
+    TickerEvent {
+        #[serde(rename = "type")]
+        event_type: String,
+        tickers: Vec<Ticker>,
+    },
+    // Variant for subscription acknowledgments
+    SubscriptionEvent {
+        subscriptions: HashMap<String, Vec<String>>,
+    },
 }
 
 /// Contains the actual ticker data for a cryptocurrency
