@@ -1,5 +1,5 @@
 {
-  description = "A Rust Websocket client package";
+  description = "Rust interface to Coinbase Advanced Websocket";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -35,37 +35,20 @@
         craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
 
         # Create our package
-        rust-websocket-client = craneLib.buildPackage {
+        coinbaseWebsocket = craneLib.buildPackage {
           src = craneLib.cleanCargoSource (craneLib.path ./.);
-          
-          buildInputs = with pkgs; [
-            # Runtime dependencies
-            openssl
-          ];
-          
-          nativeBuildInputs = with pkgs; [
-            # Build-time dependencies
-            pkg-config
-            openssl.dev
-          ];
         };
+        
       in
       {
         # Export the package
-        packages.default = rust-websocket-client;
+        packages.default = coinbaseWebsocket;
         
         # Keep the development shell
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
             rustToolchain
-            pkg-config
-            openssl
-            openssl.dev
           ];
-
-          shellHook = ''
-            export PKG_CONFIG_PATH="${pkgs.openssl.dev}/lib/pkgconfig"
-          '';
         };
       }
     );
