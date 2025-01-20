@@ -1,5 +1,5 @@
 [package]
-name = "rust-websocket-client"
+name = "coinbase-websocket"
 version = "0.1.0"
 edition = "2021"
 
