@@ -37,6 +37,10 @@
         # Create our package
         coinbaseWebsocket = craneLib.buildPackage {
           src = craneLib.cleanCargoSource (craneLib.path ./.);
+          buildInputs = with pkgs; [
+            pkg-config
+            openssl
+          ];
         };
         
       in
