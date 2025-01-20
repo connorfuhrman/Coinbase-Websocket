@@ -1,5 +1,5 @@
 use futures_util::{SinkExt, StreamExt};
-use log::{debug, error, info, warn};
+use log::{trace, debug, info, warn, error};
 use serde_json::json;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use std::collections::HashMap;
@@ -8,7 +8,7 @@ use std::cell::Cell;
 use tokio::sync::RwLock;
 
 
-use crate::models::ticker::{WebSocketMessage, Ticker};
+use crate::models::ticker::{WebSocketMessage, Ticker, Event};
 
 const WS_URL: &str = "wss://advanced-trade-ws.coinbase.com";
 
@@ -35,7 +35,7 @@ impl CoinbaseWebSocketClient
     /// When a new message for that particular `product_id` is received the
     /// associated handler method will be called
     pub async fn register_handler(&self, product_id: String, handler: Box<dyn Fn(Ticker)>) {
-	info!("Adding handler for product ID {}", product_id);
+	debug!("Adding handler for product ID {}", product_id);
         let mut handlers = self.handlers.write().await;
         handlers.insert(product_id, handler);
     }
@@ -65,28 +65,72 @@ impl CoinbaseWebSocketClient
 	return true;
     }
 
+    async fn check_all_handlers_have_sub(&self, subs: &HashMap<String, Vec<String>>) {
+	if let Some(ticker_subs) = subs.get("ticker") {
+	    // Get a read lock on the handlers map
+            let handlers = self.handlers.read().await;
+	    
+	    // Check that the subscription message has the same number of
+	    // tickers that have been subscribed to
+	    if ticker_subs.len() != handlers.len() {
+		panic!("Configured handlers for {:?} but only got subscriptions \
+			back for {:?}",
+		       handlers.keys(),
+		       ticker_subs);
+	    }
+
+	    // Check that each ticker sub has a handler
+	    for tkr in ticker_subs {
+		if !handlers.contains_key(tkr) {
+		    panic!("Subscribed ticker {} does not have a handler! \
+			    Configured handlers are {:?}",
+			   tkr,
+			   handlers.keys());
+		}
+	    }
+	    
+	} else {
+	    panic!("Subscription message did not contain 'ticker' key");
+	}
+
+	info!("Subscribed succesfully to all tickers");
+    }
+
     /// Dispatch based on the message received
     async fn dispatch_message(&self, message: WebSocketMessage) {
 	// Ensure sequence numbering is correct
 	if !self.check_seq_num(&message) {
 	    return;
 	}
-	
-        // Get a read lock on the handlers map
-        let handlers = self.handlers.read().await;
-        
+	        
         // For each ticker in the message
         for event in &message.events {
-            for ticker in &event.tickers {
-                // If we have a handler for this product ID, call it
-                if let Some(handler) = handlers.get(&ticker.product_id) {
-                    handler(ticker.clone());
-                } else {
-		    panic!("Got a product ID {} but don't have a handler for that",
-			   ticker.product_id);
+	    match event {
+		Event::TickerEvent { event_type, tickers } => {
+		    trace!("Message received was '{}' type", event_type);
+		    self.dispatch_tickers_msg(tickers).await;
+		}
+		Event::SubscriptionEvent { subscriptions } => {
+		    // Ensure that all the handlers have a matching subscription
+		    self.check_all_handlers_have_sub(subscriptions).await;
 		}
             }
-        }
+	}
+    }
+
+    async fn dispatch_tickers_msg(&self, tickers: &Vec<Ticker>) {
+	// Get a read lock on the handlers map
+        let handlers = self.handlers.read().await;
+	
+	for ticker in tickers {
+	    // If we have a handler for this product ID, call it
+	    if let Some(handler) = handlers.get(&ticker.product_id) {
+		handler(ticker.clone());
+	    } else {
+		panic!("Got a product ID {} but don't have a handler for that",
+		       ticker.product_id);
+	    }
+	}
     }
 
 
@@ -103,19 +147,20 @@ impl CoinbaseWebSocketClient
 			Please register at least one handler before connecting.".into());
         }
         
-        debug!("Found handlers for products: {:?}", product_ids);
+	info!("Subscribing to products {:?}", product_ids);
 	
         let subscribe_msg = json!({
             "type": "subscribe",
             "product_ids": product_ids,
             "channel": "ticker"
         });
-        info!("Subscribing to {}", subscribe_msg);
+	
+        debug!("Subscribing to {}", subscribe_msg);
 
 	// Connect to the WebSocket server
         debug!("Connecting to websocket {}", WS_URL);
         let (ws_stream, _) = connect_async(WS_URL).await?;
-        info!("Connected to Coinbase WebSocket server");
+        debug!("Connected to Coinbase WebSocket server");
         
         // Split the WebSocket stream into sender and receiver
         let (mut write, mut read) = ws_stream.split();
@@ -128,11 +173,14 @@ impl CoinbaseWebSocketClient
             match message_result {
                 Ok(message) => match message {
                     Message::Text(text) => {
-			debug!("Received JSON message from websocket {}", text);
+			trace!("Received JSON message from websocket {}", text);
                         // Parse the JSON message
                         match serde_json::from_str::<WebSocketMessage>(&text) {
                             Ok(data) => self.dispatch_message(data).await,
-                            Err(e) => error!("Failed to parse message '{}': {}", text, e),
+                            Err(e) => {
+				error!("Failed to parse WebSocketMessage '{}': {}", text, e);
+				return Err(e.into());
+			    },
                         }
                     }
                     Message::Close(_) => {
