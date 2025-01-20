@@ -4,6 +4,7 @@ use serde_json::json;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::cell::Cell;
 use tokio::sync::RwLock;
 
 
@@ -14,14 +15,60 @@ const WS_URL: &str = "wss://advanced-trade-ws.coinbase.com";
 // Type alias for our handler function
 pub type MessageHandler = Arc<dyn Fn(Ticker) + Send + Sync>;
 
+
+/// Wrapper around the message handler to ensure that
+/// the sequence number is correct (increasing by one
+/// for each mesage
+struct MessageHandlerWrapper<F> {
+    msg_handler: F,
+    last_seq: Cell<u64>,
+}
+
+impl<F> MessageHandlerWrapper<F>
+where
+    F: Fn(Ticker) + Send + Sync + 'static,
+{
+    pub fn new(h: F) -> Self {
+	Self {
+	    msg_handler: h,
+	    last_seq: 0.into()
+	}
+    }
+
+    pub fn handle(&self, seq_num: &u64, tkr_msg: Ticker) {
+	let last_seq = self.last_seq.get();
+	
+	if *seq_num != last_seq + 1 {
+	    warn!("Last seq val was {} but got {}",
+		  last_seq,
+		  seq_num);
+
+		if *seq_num < last_seq {
+		    error!("Got a stale message. Dropping");
+		    return;
+		}
+	}
+	
+	// Mark the last sequence
+	self.last_seq.set(*seq_num);
+
+	// Handle the method
+	let hdlr = &self.msg_handler;
+	hdlr(tkr_msg);
+    }
+}
+
 /// Interface to coinbase 'advanced trade' websocket
-pub struct CoinbaseWebSocketClient {
+pub struct CoinbaseWebSocketClient<F> {
     // Store handlers in a thread-safe map that can be shared across async tasks
-    handlers: Arc<RwLock<HashMap<String, MessageHandler>>>,
+    handlers: Arc<RwLock<HashMap<String, MessageHandlerWrapper<F>>>>,
 }
 
 
-impl CoinbaseWebSocketClient {
+impl<F> CoinbaseWebSocketClient<F>
+where
+    F: Fn(Ticker) + Send + Sync + 'static,
+{
     pub fn new() -> Self {
         Self {
             handlers: Arc::new(RwLock::new(HashMap::new())),
@@ -29,13 +76,10 @@ impl CoinbaseWebSocketClient {
     }
 
     /// Method to register a handler for a specific product ID
-    pub async fn register_handler<F>(&self, product_id: String, handler: F)
-    where
-        F: Fn(Ticker) + Send + Sync + 'static,
-    {
+    pub async fn register_handler(&self, product_id: String, handler: F) {
 	info!("Adding handler for product ID {}", product_id);
         let mut handlers = self.handlers.write().await;
-        handlers.insert(product_id, Arc::new(handler));
+        handlers.insert(product_id, MessageHandlerWrapper::new(handler));
     }
 
     async fn dispatch_message(
@@ -50,7 +94,7 @@ impl CoinbaseWebSocketClient {
             for ticker in &event.tickers {
                 // If we have a handler for this product ID, call it
                 if let Some(handler) = handlers.get(&ticker.product_id) {
-                    handler(ticker.clone());
+                    handler.handle(&message.sequence_num, ticker.clone());
                 }
             }
         }
