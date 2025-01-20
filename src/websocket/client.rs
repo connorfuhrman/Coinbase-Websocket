@@ -66,10 +66,7 @@ impl CoinbaseWebSocketClient
     }
 
     /// Dispatch based on the message received
-    async fn dispatch_message(
-        &self,
-        message: WebSocketMessage,
-    ) {
+    async fn dispatch_message(&self, message: WebSocketMessage) {
 	// Ensure sequence numbering is correct
 	if !self.check_seq_num(&message) {
 	    return;
